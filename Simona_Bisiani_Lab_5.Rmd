@@ -1,0 +1,256 @@
+---
+title: "Lab 5"
+author: "Simona Bisiani"
+date: '2020-02-17'
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r echo= FALSE, include = FALSE, message=FALSE}
+library(tidyverse)
+library(lmtest)
+library(broom)
+library(DescTools)
+library(modelr)
+library(stargazer)
+library(margins)
+library(haven)
+library(essurvey)
+library(nnet)
+library(ggpubr)
+
+rm(list = ls())
+```
+
+In this assignment, we have analysed the relationship between gender, age, education and safety concerns and choice of a particular political party in the UK 2016 Parliamentary elections. The dataset used for this analysis is provided by the Euopean Social Survey (ESS), and is, as mentioned, UK related. To analyse the impact of the above reported variables on party choice, we have ran two multinomial logistic regressions. The choice of the method is justified by the fact that our dependent variable, party choice, is a multi-level nominal variable. 
+
+In Table 1 and Table 2 we present the output from the regression analyses. In the second model we have added safety concerns to our list of independent variables. We expect that the variable regarding the importance to live in safe and secure surroundings will return us a positive coefficient for political parties prioritising internal political issues, such as UKIP. We have used as a reference category the Labour party, which indicates that the coefficients in the output are compared against the choice of voting Labour. We can see in Model 1 that the log of the odds for voting Conservative increase with age, which indicates that older individuals are more likely to vote Conservative than Labour. Whilst gender is not significant when voting Conservative, it is in regards to voting Liberal Democrat, where the log of the odds of voting Lib Dem and being a woman are higher than for Labour. On another note, less women seem to have voted for the UK Independence Party. In regards to education, the coefficients are significant for Lib Dem and UKIP, where the log of the odds of having voted for those parties are higher in Lib Dem when having higher education and lower when lacking higher education. Once we add safety to the model, we can see in Model 2 that the multinomial logit of voting Lib Dem are significantly higher when being more concerned about safety, and insignificant for parties such as Conservative and UKIP, compared to Labour. 
+
+```{r echo = FALSE, include = FALSE}
+# change to your e-mail address.
+set_email("simbi813@student.liu.se")
+
+# You can download all countries from a round, all rounds for a country, etc.
+# Here we focus on round 8 (2016) for the uk.
+ess_uk <- import_country(
+    country = "United Kingdom",
+    rounds = 8
+    )
+```
+
+```{r echo = FALSE, include = FALSE}
+# We can recode the whole tibble so that it only has one NA category
+ess2018_uk_adj <- recode_missings(ess_uk)
+
+ess2018_uk_adj <- ess2018_uk_adj %>%
+  select(gndr, eduagb2, agea, impsafe, prtvtbgb)
+
+ess2018_uk_adj %>% 
+  mutate(prtvtbgb = as_factor(prtvtbgb)) %>% 
+  count(prtvtbgb)
+
+#recoding my party labels
+ess2018_uk_adj <- ess2018_uk_adj %>% 
+  mutate(party = as_factor(prtvtbgb),
+         party = fct_recode(party, 
+                            Conservative = "Conservative", 
+                            Labour = "Labour",
+                            LiberalDemocrat = "Liberal Democrat",
+                            UKIndependenceParty = "UK Independence Party",
+                            other = "Scottish National Party",
+                            other = "Plaid Cymru",
+                            other = "Green Party",
+                            other = "Other",
+                            other = "Ulster Unionist Party (nir)",
+                            other = "Democratic Unionist Party (nir)",
+                            other = "Sinn Fein (nir)",
+                            other = "Social Democratic and Labour Party (nir)",
+                            other = "Alliance Party (nir)",
+                            other = "Traditional Unionist Party (nir)",
+                            other = "Independent(s) (nir)",
+                            other = "Other (nir)",
+                            other = "Green Party (nir)",
+                            other = "People Before Profit Alliance (nir)"))
+
+# Factorise gender and education, make education a dummy and put ref category as Labour
+ess2018_uk_adj <- ess2018_uk_adj %>% 
+  mutate(gender = as_factor(gndr), education = as_factor(eduagb2)) %>% 
+  rename(age = agea, safety = impsafe)
+
+ess2018_uk_adj <- ess2018_uk_adj %>%
+  mutate(education = ifelse(eduagb2 <= 4, yes = 1, no = 0)) %>%
+  mutate(party = fct_relevel(party, "Labour"))
+
+```
+
+```{r echo = FALSE, include = FALSE}
+# Estimating my multinomial regression models
+m1 <- multinom(party ~ gender + age + education, data = ess2018_uk_adj)
+summary(m1)
+
+m2 <- multinom(party ~ gender + age + education + safety, data = ess2018_uk_adj)
+summary(m2)
+```
+
+```{r, message=FALSE, echo=FALSE, results='asis'}
+# Inserting them in tables (I could not fit them in one table only)
+stargazer(m1, header = FALSE,
+          title = "Party choice in the United Kingdom. Multinomial logistic regression",
+          notes = "Data from ESS 2016.")
+
+stargazer(m2, header = FALSE,
+          title = "Party choice in the United Kingdom. Multinomial logistic regression",
+          notes = "Data from ESS 2016.")
+
+```
+
+
+```{r echo = FALSE, include = FALSE}
+#PREDICTED PROBABILITIES
+
+# Creating a tibble with all my combinations 
+predict_age <- bind_rows(tibble(age = 75, gender = c("Male"), education = 1, safety = seq(1, 6, 1)), tibble(age = 75, gender = c("Female"), education = 1, safety = seq(1, 6, 1)))
+                                
+# Adding probabilities to the tibble
+predictions <- predict(m2, newdata = predict_age, "probs") %>% 
+  as_tibble() %>% 
+  bind_cols(predict_age)
+
+# Putting my party category in long format
+predictions_long <- predictions %>% 
+  pivot_longer(cols = Labour:UKIndependenceParty,
+               names_to = "party",
+               values_to = "predictions")
+
+# And now we can plot our predicted probabilities
+theme_set(theme_light())
+
+g1 <- ggplot(predictions_long, aes(safety, predictions, color = party)) +
+  geom_line(size = 1.5) +
+  facet_wrap(~ gender) +
+  labs(title = "Party choices for people aged 75",
+       x = "Safety",
+       color = "Party")
+
+```
+
+
+```{r echo = FALSE, include = FALSE}
+#PREDICTED PROBABILITIES
+
+# Creating a tibble with all my combinations 
+predict_age_2 <- bind_rows(tibble(age = 50, gender = c("Male"), education = 1, safety = seq(1, 6, 1)), tibble(age = 50, gender = c("Female"), education = 1, safety = seq(1, 6, 1)))
+                                
+# Adding probabilities to the tibble
+predictions_2 <- predict(m2, newdata = predict_age_2, "probs") %>% 
+  as_tibble() %>% 
+  bind_cols(predict_age_2)
+
+# Putting my party category in long format
+predictions_long_2 <- predictions_2 %>% 
+  pivot_longer(cols = Labour:UKIndependenceParty,
+               names_to = "party",
+               values_to = "predictions")
+
+
+# And now we can plot our predicted probabilities
+theme_set(theme_light())
+
+g2 <- ggplot(predictions_long_2, aes(safety, predictions, color = party)) +
+  geom_line(size = 1.5) +
+  facet_wrap(~ gender) +
+  labs(title = "Party choices for people aged 50",
+       x = "Safety",
+       color = "Party")
+
+```
+
+```{r echo = FALSE, include = FALSE}
+#PREDICTED PROBABILITIES
+
+# Creating a tibble with all my combinations 
+predict_age_3 <- bind_rows(tibble(age = 25, gender = c("Male"), education = 1, safety = seq(1, 6, 1)), tibble(age = 25, gender = c("Female"), education = 1, safety = seq(1, 6, 1)))
+
+predict_expanded_3 <- expand(predict_age_3, age, gender, education, safety)
+                                
+# Adding probabilities to the tibble
+predictions_3 <- predict(m2, newdata = predict_expanded_3, "probs") %>% 
+  as_tibble() %>% 
+  bind_cols(predict_expanded_3)
+
+# Putting my party category in long format
+predictions_long_3 <- predictions_3 %>% 
+  pivot_longer(cols = Labour:UKIndependenceParty,
+               names_to = "party",
+               values_to = "predictions")
+
+# And now we can plot our predicted probabilities
+theme_set(theme_light())
+
+g3 <- ggplot(predictions_long_3, aes(safety, predictions, color = party)) +
+  geom_line(size = 1.5) +
+  facet_wrap(~ gender) +
+  labs(title = "Party choices for people aged 25",
+       x = "Safety",
+       color = "Party")
+```
+
+
+
+```{r echo = FALSE, include = FALSE}
+#PREDICTED PROBABILITIES
+
+# Creating a tibble with all my combinations 
+predict_age_4 <- bind_rows(tibble(age = seq(20,70,10), gender = c("Male"), education = 1, safety = seq(1, 6, 1)), tibble(age = seq(20,70,10), gender = c("Female"), education = 1, safety = seq(1, 6, 1)))
+
+# Expanding to be correct about all my combinations (otherwise safety 1 would have been associated to age 20, safety 2 to age 30, and so forth..)
+predict_expanded_4 <- expand(predict_age_4, age, gender, education, safety)
+                                
+# Adding probabilities to the tibble
+predictions_4 <- predict(m2, newdata = predict_expanded_4, "probs") %>% 
+  as_tibble() %>% 
+  bind_cols(predict_expanded_4)
+
+# Putting my party category in long format
+predictions_long_4 <- predictions_4 %>% 
+  pivot_longer(cols = Labour:UKIndependenceParty,
+               names_to = "party",
+               values_to = "predictions")
+
+# And now we can plot our predicted probabilities
+theme_set(theme_light())
+
+g4 <- ggplot(predictions_long_4, aes(safety, predictions, color = party)) +
+  geom_point(size = 1.5) +
+  facet_wrap(~ gender) +
+  labs(title = "Comparing party choices across ages",
+       subtitle = "Multinomial Logistic Regression estimates, data from ESS 2016",
+       x = "Safety",
+       y = "Predicted probability vote choice",
+       color = "Party")
+
+```
+
+In Figure 1, we have plotted the predicted probability of voting a certain political party, visualising the level of concern for safety issues on the X axis and separating female and male in the visualisation to assess differential prediction outcomes by gender. The first three plots display outcomes at set age years, 25, 50, 75. The final plot picks 6 specific years of age (20, 30, 40, 50, 60, 70) and plots prediction outcomes for all the age years specifically. We can see that the slope of the prediction does not differ across age groups, but mainly that the intercept varies, especially among Labour voters. For example, the predicted likelihood of voting Labout whilst not prioritizing safety concerns is very high among young voters of 25 years of age, compared to 75 years old Labour voter, across both genders. The trend seems nearly reversed for Conservative voters, who, if older, are more likely to vote Conservative at all levels of safety concerns, compared to their younger counterparts. We did not find, in line with our expectation, significant results in relation to safety concerns and voting UKIP, although the coefficient was positive as hypothetised.
+
+```{r, echo = FALSE}
+
+figure <- ggarrange(g1,g2,g3, common.legend = TRUE)
+annotate_figure(figure,
+               top = text_grob("Party choices in the UK 2016 Parliamentary election", color = "black", face = "bold", size = 14), 
+               bottom = text_grob("Data source: ESS 2016", color = "black", hjust = 1, x = 1, face = "italic", size = 10),
+               fig.lab = "Figure 1", fig.lab.face = "italic")
+
+g4
+
+```
+
+
+
+

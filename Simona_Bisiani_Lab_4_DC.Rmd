@@ -1,0 +1,161 @@
+---
+title: "Lab 4"
+author: "Simona Bisiani"
+date: '2020-02-10'
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+In this assignment, we have analysed the relationship between the size of the share of females in various US counties and the county's likelihood to have voted for President Trump in the 2016 presidential elections. The dataset used for this analysis is provided by the US Census Bureau and Centers for Disease Control and acquired through the R package "socviz". The data is comprised of US census related information and voting outcomes, summarised by American county.
+To analyse the impact of female shares on voting outcomes, our dependendent variable is a dummy that coded 1 if Trump won in that particular county, or 0 if Clinton won instead. Our main independent variable is the share of females in the county. We have added the share of white individuals in the county, to control for ethnicity, and the census region, to control for differences across geographical sections of the US, given some might be have a history of voting Republican. In a second model, we have added household income to see whether our model predicted better after controlling for median household income. 
+In Table 1 we present summary descriptive statistics of the variables used in this analysis. In Table 2 we present the output from the regression analysis. We can see that the log of the odds for a county voting Trump are generally higher when controlling for household income. Overall, in both models, the larger the share of females the smaller the log of the odds that the county has voted for President Trump, with the effect being slightly larger in the second model. The models also indicate that the larger the share of whites the larger the log of the odds of having voted for Trump. The same applies for the South census region, unsurprisingly, considered the region political history of conservatism. In relation to household median income, the larger the income the smaller the log of the odds of voting for President Trump. 
+
+To compare how our models perform in terms of goodness of fit, we have calculated the McFadden Pseudo-R2, which turns to be slightly higher (31% vs 28%) for the second model, indicating a better model fit in the second logistic regression. Overall, by the standards of the R2, both models seem to excellently fit our data. Another aspect we might want to analyse is whether adding the household median income to our second model, increasing its complexity, significantly improves our model. To do this, we perform a likelihood ratio test, which returns us, as per in hypothesis testing, whether we should accept or refute the Null Hypothesis H0 that that the complex model is not significantly more accurate than the nested model (model one). Upon performing the likelihood ratio test, we can confirm that we can reject the null hypothesis H0 and therefore conclude that the second model is significantly more accurate than our first model. 
+After concluding that our second model fits our research question better, we have calculated predicted probabilities for each county. We have assessed the percentage of correct prediction of our model, which sits at 88% for M1 and 89% for M2. We have then plotted the predicted proabilities for counties voting outcomes, that is, based on our independent variables in model 2, the likelihood that a specific county would have voted for Trump. As you can see in Figure 1, most counties have an approximate share of females between 45% and 55%. The predicted probabilities are colored by census region. It can be noticed, in accordance to our model 2, that counties located in the South census region seem to have a higher likelihood of voting for Trump, unlike counties in the West census region.
+Finally, figure 2 is a plot of our Average Marginal Effects, or AME, which help us interpret the logistic regression output. Because the logistic function is nonlinear, it is not immediately intuitive what the effect of a unit increase in female share ratio might be on the county's probability to vote for President Trump. Therefore, we can help visualise this by interpreting the effect of a unit change averaged over all counties. In figure 2, we can see that as the share of females increaes, there is a decrease in the likelihood to vote for Trump, as per in our model 2.
+
+
+```{r echo= FALSE, include = FALSE, message=FALSE}
+library(socviz)
+library(tidyverse)
+library(lmtest)
+library(broom)
+library(DescTools)
+library(modelr)
+library(stargazer)
+library(margins)
+rm(list = ls())
+
+#dataset - removing first row
+socviz::county_data
+county_data <- county_data[-1,]
+
+#new trump variable
+county_data <- county_data %>%
+  mutate(trump = recode(county_data$winner,
+    "Trump" = 1, "Clinton" = 0))
+
+county_data <- county_data %>%
+  mutate(hh_income = hh_income/1000)
+
+```
+
+```{r echo = FALSE,include=FALSE}
+#regression model 
+m1 <- glm(trump ~ female + white + census_region, data = county_data, family = "binomial")
+summary(m1)
+
+m2 <- glm(trump ~ female + white + census_region + hh_income, data = county_data, family = "binomial")
+summary(m2)
+
+#likelihood ratio test
+lrtest(m1, m2)
+
+#McFadden´ R2
+m1_McFadden <- PseudoR2(m1)
+m2_McFadden <- PseudoR2(m2)
+```
+
+```{r echo=FALSE, include=FALSE}
+#let's create predicted probabilities
+m1_pred <- augment(m1, type.predict = "response")
+m2_pred <- augment(m2, type.predict = "response")
+
+# Let's create a new variable -.pred- that is 1 if the predicted value is .5 or higher
+# otherwise it will be 0.
+m1_log_pred <- augment(m1, type.predict = "response") %>%
+  mutate(.pred = as.numeric(.fitted > .5))
+
+m2_log_pred <- augment(m2, type.predict = "response") %>%
+  mutate(.pred = as.numeric(.fitted > .5))
+
+# We can create a grid with all combinations of the variables and put that in a tibble
+#county_data_fem_whi_cen_reg <- county_data %>%
+  #data_grid(female, white, census_region)
+
+# We can now calculate how big share of the correct predictions by counties
+mean(m1_log_pred$trump == m1_log_pred$.pred, na.rm = TRUE)
+mean(m2_log_pred$trump == m2_log_pred$.pred, na.rm = TRUE)
+
+```
+
+```{r echo = FALSE, include= FALSE}
+
+# We can also extract the information and use ggplot
+# which gives us more opportunities to adjust the plot as we like
+ame <- cplot(m2, "female", what = "effect", draw = FALSE)
+
+## We can get many AMEs at once
+# estimate marginal effects
+survive_marg <- margins(m2)
+
+# extract average marginal effects
+survive_marg_tbl <- summary(survive_marg) %>%
+  as_tibble() 
+survive_marg_tbl
+
+```
+
+```{r echo = FALSE, include =FALSE}
+##NOT USING THIS, just a try out
+
+#summary statistics of variables
+number_observations <- nrow(county_data)
+mean_female <- mean(county_data$female)
+sd_female <- sd(county_data$female)
+mean_white <- mean(county_data$white)
+sd_white <- sd(county_data$white)
+household_income_mean <- mean(county_data$hh_income)
+household_median <- median(county_data$hh_income)
+
+stats <- c(number_observations, mean_female, sd_female, mean_white, sd_white, household_income_mean, household_median)
+summary_statistics_1 <- as.data.frame(stats, row.names = c("observations", "female share mean", "female share std", "white share mean", "white share std", "household income median mean", "household income median median"))
+
+stargazer(summary_statistics_1, digits = 2, header = FALSE, summary = FALSE, 
+          title = "Descriptive Statistics",
+          notes = "Table 1")
+
+```
+
+```{r echo=FALSE, results="asis"}
+county_data %>%
+  select(c(female, white, hh_income)) %>%
+  stargazer(digits = 2, header = FALSE, summary = TRUE, 
+          title = "Descriptive Statistics",
+          notes = "Table 1")
+
+stargazer(m1, m2, digits = 2, header = FALSE, summary = FALSE, 
+          title = "Logistic Regression",
+          notes = "Table 2")
+```
+
+```{r echo= FALSE}
+ggplot(m2_log_pred, aes(female, .fitted, color = census_region)) +
+  geom_point() +
+  labs(title = "Figure One: Probability of counties voting Trump. Logistic regression",
+       y = "Predicted Probability of voting Trump",
+       color = "census region",
+       caption = "Data from the socviz Package.")
+
+ggplot(data = survive_marg_tbl,
+       mapping = aes(x = reorder(factor, AME),
+                     y = AME,
+                     ymin = lower,
+                     ymax = upper)) +
+  # add line indicating null (0) effect
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  # add point range plot to visualize estimate and confidence interval
+  geom_pointrange() +
+  coord_flip() +
+  labs(title = "Figure Two: AME of counties voting Trump", 
+       x = NULL,
+       y = "Average marginal effect",
+       caption = "Data from the socviz package")
+
+```
+

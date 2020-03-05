@@ -1,0 +1,141 @@
+---
+title: "Lab 7"
+author: "Simona Bisiani"
+date: "3/2/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+```{r include = FALSE, message=FALSE}
+library(tidyverse)
+library(broom)
+library(DescTools)
+library(essurvey)
+library(nnet)
+library(brant)
+library(ggeffects)
+library(scales)
+
+rm(list = ls())
+```
+
+In this analysis, we are exploring the relationship between subjective health and levels of social engagement in Hungary. The data used is provided by the 8th round of the European Social Survey (ESS), gathered in 2016. Our main dependent variable "social engagement" describes the degree to which respondents feel they socially engage compared to people of their same age, and is comprised of five categories, ranging from "Much more than most" to "much less than most". Our main predictor is "subjective health", coded on a scale from 1 (low) to 5 (high). We have adjusted our model by including a variable on "social trust", describing, on a scale from 0 (low trust) to 10 (high trust), whether the respondent feels able to trust others. Additionally, we have adjusted by gender and by education level, a dummy variable coded 1 if the respondent has higher education and 0 if not.
+
+Given the fact that our outcome variable five categories can be ordered, we have run an ordinal logistic regression, aimed at showing the relationship between our predictors and social engagement. Figure 1 displays the odds ratios of our regression model. The red line points to the fact that odds ratio of 1 would indicate no effect of the predictor on the dependent variable.  The effect coefficients in terms of odds ratio are visualised in Figure 1 by points, whereas the lines correspond to the confidence intervals. We can infer from our model that on our scale, the odds ratio of 1.37 for women means that the odds of choosing "more than most" rather than a "much more than most" or a "less than most" rather than "about the same" are 1.37 higher than for men. A one unit increase in social trust decreases the odds ratio of "more than most" compared to "much more than most" by 0.87, and so forth for all other response level. Similarly, a one unit increase in health decreases your odds ratio of choosing "less than most" compared to "about the same" by 0.51. In short, women seem to socially engage less with people of the same age, people who rate their subjective health lower also seem to socially engage less, individuals with higher education participate more, as those who have higher social trust. 
+
+A key fulfillment of the ordinal logistic model is the parallel regression assumption, which implies that the estimates of the odds between response categories (e.g. "much less than most" and all the others) are the same as if we instead looked at "less than most" and all the others, and so on. The expectation is that the effects of the independent variables are consistent or proportional across the different thresholds, that is, that the predictors have the same effects on the odds regardless of the response category. In other words, if we were to run separate binary logistic regressions for each response category, we would obtain an identical odds ratio for each predictor across all models. To test the assumption, we have run a Brant test, which returned us a very small coefficient, lower than .05, indicating that we should either drop some explanatory variables or switch to a different model (e.g. the multinomial logistic regression).
+
+Finally, we have calculated predicted probabilities for the responses of our social engagement variable. In Figure 2, we have plotted the predicted probabilities, showing them in relation to subjective health levels, on the x axis. As we can see from our cumulative probabilities stacked chart, our model predicts that individuals who rank themselves lower in subjective health are also expected to socialise less than people who state they socially engage with same-age peers to the same extent or to a larger extent as their peers. It appears that the magnitude of the effect is larger when declaring a lower health condition, indicating that the lower your health the less likely you are to socially engage to a higher degree than on the opposite side of the spectrum.
+
+```{r include = FALSE}
+
+# DATA
+
+## Importing my data
+# My e-mail address.
+set_email("simbi813@student.liu.se")
+
+# Hungary, round 8, 2016 data
+ess_hu <- import_country(
+    country = "Hungary",
+    rounds = 8
+    )
+
+```
+
+```{r include = FALSE}
+
+# DATA RESHAPING 
+
+# I am here recoding my non responses etc as NA
+ess2016_hu <- recode_missings(ess_hu)
+
+# I am here narrowing my dataset to my relevant variables, renaming them and preparing them for the analysis
+ess2016_hu <- ess2016_hu %>%
+  filter(cntry == "HU") %>% 
+  select(sclact, gndr, edulvlb, ppltrst, health) %>%
+  mutate(gender = as_factor(gndr),
+         social_trust = as.integer(ppltrst),
+         social_engagement = fct_rev(as_factor(sclact)),
+         high_edu = as.integer(edulvlb >= 500))  
+
+# I am here reordering my variable health
+reordering <- function(i) {  
+  (6 - i) }
+
+ess2016_hu$health <- sapply(ess2016_hu$health, reordering)
+
+```
+
+```{r include = FALSE}
+
+# RUNNING THE ORDINAL LOGISTIC REGRESSION
+
+# Change the dependent variable to an ordered factorised one 
+ess2016_hu <- ess2016_hu %>% 
+  mutate(social_engagement = as.ordered(ess2016_hu$social_engagement))
+
+# Model library
+library(MASS)
+
+# Ordinal logistic model
+soc_eng <- polr(social_engagement ~ gender + high_edu + health + social_trust, data = ess2016_hu, Hess = TRUE)
+
+# Model summary
+summary(soc_eng)
+
+# brant test
+brant(soc_eng)
+
+```
+
+```{r}
+
+# VISUALISING THE ODDS RATIOS
+
+tidy(soc_eng, conf.int = TRUE, exponentiate = TRUE) %>%
+  filter(coefficient_type == "coefficient") %>% 
+  ggplot(aes(term, estimate)) +
+  coord_flip() + 
+  geom_pointrange(aes(ymin = conf.low, ymax = conf.high)) +
+  geom_hline(yintercept = 1, colour = "red", lty = 2) +
+  labs(title = "Attitudes in Hungary to engaging in social activities compared \n to people of the same age",
+       subtitle = "Estimates from a ordinal logistic regression model \n Dependent variable on a five-point-scale from much less than most to much more \n than most",
+       y = "",
+       x = "Odds ratios",
+       caption = "Figure 1: Data from ESS 2016")
+  
+```
+
+```{r}
+
+# PREDICTED PROBABILITIES
+
+# using ggeffect, which is just a wrapper for effects
+soc_eng_prob_gg <- ggeffect(soc_eng, term = "health")
+
+# Visualising predicted provabilities using a stacked area chart 
+soc_eng_prob_gg %>% 
+  mutate(response = fct_rev(as_factor(response.level)),
+         response = fct_recode(response, "About the same" = "About.the.same",
+                             "Much more than most" = "Much.more.than.most",
+                             "Much less than most" = "Much.less.than.most",
+                             "More than most" = "More.than.most",
+                             "Less than most" = "Less.than.most")) %>% 
+  ggplot(aes(x, predicted,  fill = response)) +
+  geom_area() +
+  scale_y_continuous(labels = label_percent()) +
+  scale_x_continuous(breaks = seq(1, 6, by = 1)) +
+  labs(title = "Attitudes in Hungary to the respondent taking part in social activities compared \n to others of the same age",
+       subtitle = "Estimates from a ordinal logistic regression model \n Dependent variable on a five-point-scale from much more than most to much less than most",
+       y = "Predicted probabilities",
+       x = "Subjective Health",
+       caption = "Figure 2: Data from ESS 2016",
+       fill = "") +
+  scale_fill_brewer(type = "seq", palette = 4)
+
+```
+

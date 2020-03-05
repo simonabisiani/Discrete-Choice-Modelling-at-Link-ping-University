@@ -1,0 +1,73 @@
+---
+title: "Lab 2"
+author: "Simona Bisiani"
+date: "27/01/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=FALSE, include=FALSE, message=FALSE}
+library(stargazer)
+library(tidyverse)
+library(titanic)
+library(broom)
+
+titanic <- bind_rows(titanic_train, titanic_test) %>% 
+  mutate(Pclass = as_factor(Pclass))
+```
+
+## Question 1 
+Estimate a logistic regression with survival as the dependent variable and sex, age, passenger class and fare as independent variables. Describe the results briefly. Now, the variable Parch indicates how many parents or children each individual had on the Titanic. Do you think having a parent or a children on board increases or decreases the likelihood of survival? Why? Create a new variable any_parch that only has the values 0 or 1, where 1 indicates the individual has a children or a parent on board regardless or how many (Hint: you could use mutate and if_else). Estimate a new model where you include this new variable. Describe the results. Is it in line with your expectations? 
+
+
+*My first model indicates that each of my predictors have a negative impact on survival likelihood. For example, for each year of age your odds of surviving decrease. Likewise, travelling in third class drops your survival odds compared to first class, whereas in second class you still have a negative coefficient but with less detrimental consequences: travelling in second class drops your odds to survive but not to the same extent as in third class. Similarly, being a male drops your odds to survive. The second model includes a dummy variable returning 1 if individuals are travelling accompanied, and 0 if travelling alone. When considering individuals travelling together, mainly children depending on their parents or parents prioritising their childrens' survival and wellbeing, it is reasonable to hypotethise that people travelling with others would have significantly less chances to survive than individuals travelling on their own. Another interesting factor to consider though was the Titanic WCF (Women and Children First policy) implementation, which indicates that upon the captain's order the survival of women and children had been prioritised, thus potentially explaining a negative coefficient in male survival rates or in people travelling alone. On the other hand though, if considered most crew members on a ship are also the most knowledgeable in terms of escape routes and emergency procedures, and they count as travelling alone, it can be expected that the lack of knowledge and experience of families on the ship could be negatively impacting their likelihood to survive. Whilst travelling alone or accompanied seems to have some pros and cons, upon running it into model two we can observe that interestingly, whilst a small negative coefficient is returned for our variable Parch(1), the value is statistically insignificant. The results in M1 and M2 are displayed both in terms of regression coefficients, Table 1, and in terms of odds ratio, Table 2, indicating on a scale from 0 to infinity the impact of one increase in unit of the independent variable on the odds of the dependent variable. A value of 1 indicates that one increase in the independent variable unit would have no impact on the odds of the dependent variable.* 
+```{r, include=FALSE, echo=FALSE}
+survive_age_log <- glm(Survived ~ Age + Pclass + Sex + Fare, data = titanic, family = "binomial")
+summary(survive_age_log)
+
+any_parch <- titanic %>%
+  mutate(Parch, Parch = ifelse(Parch == 0, "0", "1"))
+
+survive_age_log_2 <- glm(Survived ~ Age + Pclass + Sex + Fare + Parch, data = any_parch, family = "binomial")
+summary(survive_age_log_2)
+
+results <- cbind(exp(coef(survive_age_log)), exp(coef(survive_age_log_2)))
+results
+
+```
+
+```{r, echo=FALSE, results='asis'}
+stargazer(survive_age_log, survive_age_log_2, digits = 2, header = FALSE,
+          title = "Regression Models",
+          notes = "Data from the titanic R package.")
+```
+
+```{r, echo=FALSE, results='asis'}
+stargazer(results, digits = 2, header = FALSE,
+          title = "Odds Ratio of M(1) and M(2)",
+          notes = "Data from the titanic R package.")
+```
+
+
+## Question 2 
+Make a graph that illustrates the odds ratios for the variables included in the final model estimated in Question 1. Make sure that it has a relevant title and that the axis have informative labels, and so on. If you have the time, try different themes so that you get a graph that you like.
+```{r, echo=FALSE, message=FALSE}
+estimates <- tidy(survive_age_log_2, exponentiate = TRUE, conf.int = TRUE)
+
+estimates %>% 
+  filter(term != "(Intercept)") %>% 
+  ggplot(aes(term, estimate)) +
+  geom_hline(yintercept = 1, color = "red") +
+  geom_point() +
+  scale_y_continuous(breaks = seq(0, 1.6, by = .2), limits = c(0, 1.6)) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high, width = .1)) +
+  coord_flip() +
+  labs(title = "Survival from Titanic. Logistic regression",
+       y = "Odds ratios",
+       x = "Variables",
+       caption = "Data from Titanic R Package")
+```
+

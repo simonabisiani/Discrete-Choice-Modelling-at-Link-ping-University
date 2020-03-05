@@ -1,0 +1,130 @@
+---
+title: "Lab 6"
+author: "Simona Bisiani"
+date: "2/24/2020"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+'
+```{r echo= FALSE, include = FALSE, message=FALSE}
+library(tidyverse)
+library(lmtest)
+library(broom)
+library(DescTools)
+library(modelr)
+library(stargazer)
+library(margins)
+library(haven)
+library(essurvey)
+library(nnet)
+library(ggpubr)
+
+rm(list = ls())
+```
+
+```{r echo = FALSE, include = FALSE}
+## Importing my data
+# My e-mail address.
+set_email("simbi813@student.liu.se")
+
+# Spain, round 8, 2016 data
+ess_sp <- import_country(
+    country = "Spain",
+    rounds = 8
+    )
+```
+
+In this analysis, we are estimating the impact of concerns for the environment and trust in the European Union on party choice during voting in the Spanish 2016 Parliamentary elections. The data used is provided by the 8th round of the European Social Survey (ESS). Our main dependent variable "party" is comprised of five categories, mainly the four largest political parties in the 2016 elections and a grouping of the remainder paries in a category called "other", which also includes blank votes and invalid votes. The four largest political parties were the Partido Popular (PP), Unidos Podemos, Ciudadanos and the Partido Socialista. To test the relationship between environmental interest, trust in the EU and voting outcomes, we have run a multinomial logistic regression (MNL) where we selected the Spanish most voted political party, the Partido Popular (PP) as our reference category, meaning our model results are to interpreted in relation to it. In our model we have included demographic variables such as age and gender, as well as our main independent variables "EUtrust" and "environmentalism". EUtrust is a variables that codes 0 as no trust in the European Union and 10 as full trust in the EU. Similarly, environmentalism returns 1 for least degree of concern in the environment and 6 for the highest degree of concern in the environment at the voter level. Figure 1 displays the odds ratios of our regression model. The red line points to the fact that odds ratio of 1 would indicate no effect of the predictor on the dependent variable.  The effect coefficients in terms of odds ratio are visualised in Figure 1 by points, whereas the lines correspond to the confidence intervals. Whenever confidence intervals cross the red line, we can conclude there is no statistically significant effect of that variable on party voting. We can infer from our model that gender does not have an impact on the choice of a particular political party. Differently, we can see significant result in relation to having concerns for the environment and voting for Unidos Podemos, the most far left of the parties in our selection, indicating that an increase in one unit of concern for the environment, would increase the odds ratio for voting for Unidos Podemos by 1.33 compared to el Partido Popular. Significant results can also be found for our EU trust variable, where generally, when an increase in unit of trust in the EU, would lead to a decrease in the odds ratio of voting for the other political parties compared to the Partido Popular, indicating that voters of the PP have generally more trust in the EU than voters of other parties. Finally, we have calculated how our model performed to predict voting behaviour, and we have obtained a correct prediction score of 33%. We have then created a second model where we have added a variable indicating, on a scale from 0 to 10, how much the voter identifies himself as a left wing individuals or a right wing one. Adding that variable to our model increases our model ability to predict voting outcomes to 52%. We have not assessed whether the difference in prediction ability is statistically significant, and whether therefore we should go ahead with using model 2 as opposed to model 1. However, the difference between the two correct-prediction scores is quite substantial. Obviously, the more variables we add to our model, the better our model will become at predicting voting behaviour, so the question begs how far we are intending to go in including variables to our model, sacrificing, on the other hand, the AIC and BIC scores of the enhanced model.  
+
+```{r}
+# I am here recoding my non responses etc as NA
+ess2016_sp <- recode_missings(ess_sp)
+
+# I am here narrowing my dataset to my relevant variables, renaming them and preparing them for the analysis
+ess2016_sp <- ess2016_sp %>%
+  filter(cntry == "ES") %>% 
+  select(prtvtdes, gndr, agea, trstep, impenv, lrscale) %>%
+  mutate(prtvtdes = as_factor(prtvtdes),
+         party = as_factor(prtvtdes),
+         party = fct_lump(party, 4),
+         female = as.integer(gndr == 2),
+         age = as.integer(agea),
+         left_right = as.integer(lrscale),
+         environmentalism = as.integer(impenv),
+         party = fct_relevel(party, "Partido Popular - PP")) %>% 
+  rename(EUtrust = trstep)
+
+# I am reordering my environment variable as 1 means most caring and 6 means less caring, 
+# and I think it would make more sense to see that inverted (6 = high concern, 1 = least concern)
+reordering <- function(i) {  
+  (7 - i) }
+ess2016_sp$environmentalism <- sapply(ess2016_sp$environmentalism, reordering)
+
+```
+
+```{r warning = FALSE, include = FALSE}
+
+# Estimating my multinomial regression model
+m1 <- multinom(party ~ female + age + EUtrust + environmentalism, data = ess2016_sp)
+
+```
+
+```{r}
+
+# For a quick glance of the odds ratio coefficients
+odds_ratio_m1 <- (exp(coef(m1)))
+
+# Plotting my odds ratios
+tidy(m1, exponentiate = TRUE, conf.int = TRUE) %>% 
+  filter(term != "(Intercept)")%>% 
+  ggplot(aes(term, estimate, colour = y.level)) +
+  geom_hline(yintercept = 1, colour = "red", lty = 2) +
+  coord_flip() +
+  geom_pointrange(aes(ymin = conf.low, ymax = conf.high),
+                  position = position_dodge(width = 1/2)) +
+  scale_y_log10(breaks = seq(0.1, 1.8, by = .2)) +
+  labs(y = "Odds ratios",
+       x = "",
+       title = "Odds ratios from multinomial logistic regression",
+       subtitle = "Party Choice in the 2016 Spanish Parliamentary elections",
+       colour = "Outcomes (Partido Popular - PP ref.)",
+       caption = "Figure 1: Data from ESS 2016")
+```
+
+```{r include = FALSE, warning = FALSE}
+
+# Get the data frame used to estimate the model
+mf <- model.frame(party ~ female + age + EUtrust + environmentalism,
+                     data = ess2016_sp, na.action=na.omit)
+
+# Attach prediction class (party name)
+predictions <- predict(m1, type = "class") %>% 
+  as_tibble() %>% 
+  bind_cols(mf)
+
+# Calcualte how big share of the observations we predicted correctly
+mean(predictions$value == predictions$party, na.rm = TRUE)
+
+
+## ADDING LEFT_RIGHT
+m2 <- multinom(party ~ female + age + EUtrust + environmentalism + left_right, data = ess2016_sp)
+
+# Get data frame used for the model estimation
+mf2 <- model.frame(party ~ female + age + EUtrust + environmentalism + left_right,
+                     data = ess2016_sp, na.action=na.omit)
+
+# Attach prediction class (party name)
+predictions2 <- predict(m2, type = "class") %>% 
+  as_tibble() %>% 
+  bind_cols(mf2)
+
+# Calculate how big share of the observations we predicted correctly
+mean(predictions2$value == predictions2$party, na.rm = TRUE)
+
+```
